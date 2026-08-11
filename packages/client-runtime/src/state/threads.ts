@@ -338,6 +338,13 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       return;
     }
 
+    if (item.kind === "realtime") {
+      // Ephemeral voice-session traffic: no domain-event sequence, nothing
+      // to fold into the durable thread projection. Voice consumers read
+      // these items from their own subscription.
+      return;
+    }
+
     const sequence = yield* SubscriptionRef.get(lastSequence);
     if (item.event.sequence <= sequence) {
       return;
