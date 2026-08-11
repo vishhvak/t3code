@@ -54,6 +54,7 @@ import {
 } from "../../components/ComposerToolbarTrigger";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import { VoiceEntryButton } from "../voice/VoiceEntryButton";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
@@ -856,6 +857,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   icon="plus"
                   onPress={() => void props.onPickDraftImages()}
                   showChevron={false}
+                />
+                <VoiceEntryButton
+                  threadRef={
+                    props.selectedThread
+                      ? {
+                          environmentId: props.environmentId,
+                          threadId: props.selectedThread.id,
+                        }
+                      : null
+                  }
                 />
                 {settingsMenu ? (
                   <ControlPillMenu

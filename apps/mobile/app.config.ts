@@ -197,6 +197,8 @@ const config: ExpoConfig = {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
+      NSMicrophoneUsageDescription:
+        "Allow T3 Code to use the microphone so you can talk to your coding agent.",
       NSLocalNetworkUsageDescription:
         "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
       ITSAppUsesNonExemptEncryption: false,
@@ -293,12 +295,35 @@ const config: ExpoConfig = {
       "expo-camera",
       {
         cameraPermission: "Allow T3 Code to access your camera so you can scan pairing QR codes.",
-        microphonePermission: false,
+        // Voice mode uses the microphone, so every plugin that touches this
+        // key declares the same sentence: whichever mod runs last, the
+        // generated Info.plist carries one honest description.
+        microphonePermission:
+          "Allow T3 Code to use the microphone so you can talk to your coding agent.",
         barcodeScannerEnabled: true,
         recordAudioAndroid: false,
       },
     ],
-    ["expo-image-picker", { photosPermission: false, microphonePermission: false }],
+    [
+      "expo-image-picker",
+      {
+        photosPermission: false,
+        microphonePermission:
+          "Allow T3 Code to use the microphone so you can talk to your coding agent.",
+      },
+    ],
+    // Voice mode carries audio over WebRTC. This must apply after the camera
+    // and image-picker plugins: those declare that they do not record audio
+    // and strip RECORD_AUDIO from the Android manifest, so the microphone
+    // permission voice needs has to be added back last.
+    [
+      "@config-plugins/react-native-webrtc",
+      {
+        cameraPermission: false,
+        microphonePermission:
+          "Allow T3 Code to use the microphone so you can talk to your coding agent.",
+      },
+    ],
     [
       "expo-splash-screen",
       {
