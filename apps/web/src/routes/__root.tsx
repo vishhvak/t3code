@@ -21,6 +21,7 @@ import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPrompt
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
+import { VoiceSessionProvider } from "../components/voice/VoiceSessionProvider";
 import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
@@ -119,11 +120,13 @@ function RootRouteView() {
   }
 
   const appShell = (
-    <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
-    </CommandPalette>
+    <VoiceSessionProvider>
+      <CommandPalette>
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      </CommandPalette>
+    </VoiceSessionProvider>
   );
 
   return (

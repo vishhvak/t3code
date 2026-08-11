@@ -57,6 +57,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "voice-orb-color",
+    title: "Voice orb color",
+    to: "/settings/appearance",
+  },
+  {
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
@@ -116,6 +121,21 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "provider-update-checks",
     title: "Provider update checks",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-mode",
+    title: "Voice mode",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-mode-voice",
+    title: "Voice",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-mode-engine",
+    title: "Voice engine",
     to: "/settings/general",
   },
   {

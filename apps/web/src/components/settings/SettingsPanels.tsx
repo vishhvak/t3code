@@ -9,6 +9,7 @@ import {
   ProviderDriverKind,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
+  VOICE_MODE_VOICES,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -142,6 +143,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { useVoiceOrbColorOverride, useVoiceOrbColors } from "../../voiceOrbColor";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -947,6 +949,8 @@ export function AppearanceSettingsPanel() {
   } = useTheme();
   const customThemes = useCustomThemes();
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
+  const [voiceOrbOverride, setVoiceOrbOverride] = useVoiceOrbColorOverride();
+  const voiceOrbColors = useVoiceOrbColors();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const environmentStageLabel = useEnvironmentStageLabel();
@@ -1021,6 +1025,30 @@ export function AppearanceSettingsPanel() {
                 value={settings.glassOpacity}
               />
             </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("voice-orb-color")}
+          description="The voice orb follows the active theme. Pick a color to override it. Motion, not color, communicates its state."
+          resetAction={
+            voiceOrbOverride !== "" ? (
+              <SettingResetButton label="voice orb color" onClick={() => setVoiceOrbOverride("")} />
+            ) : null
+          }
+          control={
+            <label className="flex items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">
+                {voiceOrbOverride === "" ? "Follow theme" : voiceOrbOverride}
+              </span>
+              <input
+                aria-label="Voice orb color"
+                className="size-8 cursor-pointer rounded-md border border-input bg-transparent p-0.5"
+                type="color"
+                value={voiceOrbColors.primary}
+                onChange={(event) => setVoiceOrbOverride(event.currentTarget.value)}
+              />
+            </label>
           }
         />
 
@@ -1963,6 +1991,89 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("voice-mode")}
+          description="Talk to Codex threads in realtime. Adds a voice control to the composer on Codex threads; the session keeps running while you navigate elsewhere."
+          control={
+            <Switch
+              checked={settings.voiceModeEnabled}
+              onCheckedChange={(checked) => updateSettings({ voiceModeEnabled: Boolean(checked) })}
+              aria-label="Voice mode"
+            />
+          }
+        />
+
+        {settings.voiceModeEnabled ? (
+          <SettingsRow
+            {...searchableSetting("voice-mode-voice")}
+            description="The voice used for spoken replies. Takes effect when the next voice session starts. Playback speed is fixed by the realtime provider."
+            resetAction={
+              settings.voiceModeVoice !== DEFAULT_UNIFIED_SETTINGS.voiceModeVoice ? (
+                <SettingResetButton
+                  label="voice"
+                  onClick={() =>
+                    updateSettings({ voiceModeVoice: DEFAULT_UNIFIED_SETTINGS.voiceModeVoice })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={settings.voiceModeVoice}
+                onValueChange={(value) => {
+                  const voice = VOICE_MODE_VOICES.find((candidate) => candidate === value);
+                  if (voice) updateSettings({ voiceModeVoice: voice });
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-40" aria-label="Voice">
+                  <SelectValue>
+                    {settings.voiceModeVoice.charAt(0).toUpperCase() +
+                      settings.voiceModeVoice.slice(1)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {VOICE_MODE_VOICES.map((voice) => (
+                    <SelectItem hideIndicator key={voice} value={voice}>
+                      {voice.charAt(0).toUpperCase() + voice.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
+
+        {settings.voiceModeEnabled ? (
+          <SettingsRow
+            {...searchableSetting("voice-mode-engine")}
+            description="GPT-Live listens while it speaks and narrates delegated work. Turn-based stops the moment you interrupt but skips delegation narration. Takes effect when the next voice session starts."
+            control={
+              <Select
+                value={settings.voiceModeEngine}
+                onValueChange={(value) => {
+                  if (value === "live" || value === "turn_based") {
+                    updateSettings({ voiceModeEngine: value });
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-44" aria-label="Voice engine">
+                  <SelectValue>
+                    {settings.voiceModeEngine === "turn_based" ? "Turn-based" : "GPT-Live"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="live">
+                    GPT-Live
+                  </SelectItem>
+                  <SelectItem hideIndicator value="turn_based">
+                    Turn-based
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
 
         <SettingsRow
           title={

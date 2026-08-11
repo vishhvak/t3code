@@ -244,6 +244,7 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { useVoiceSession } from "./voice/VoiceSessionProvider";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -5805,6 +5806,59 @@ function ChatViewContent(props: ChatViewProps) {
     composerRef,
   ]);
 
+  // Voice from the draft composer: a voice session needs a real server
+  // thread, so create one from the draft's current selection, navigate to
+  // it, then hand it to the voice session provider.
+  const { start: startVoiceSession } = useVoiceSession();
+  const startVoiceFromDraft = useCallback(async () => {
+    const sendCtx = composerRef.current?.getSendContext();
+    if (!sendCtx || activeProject === null || activeThread === undefined || isServerThread) return;
+    const nextThreadId = newThreadId();
+    const createResult = await createThread({
+      environmentId,
+      input: {
+        threadId: nextThreadId,
+        projectId: activeProject.id,
+        title: "Voice session",
+        modelSelection: sendCtx.selectedModelSelection,
+        runtimeMode,
+        interactionMode: "default",
+        branch: activeThreadBranch,
+        worktreePath: activeThread.worktreePath,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (createResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(createResult)) {
+        const error = squashAtomCommandFailure(createResult);
+        toastManager.add({
+          type: "error",
+          title: "Could not start voice",
+          description: error instanceof Error ? error.message : "Creating the voice thread failed.",
+        });
+      }
+      return;
+    }
+    // Provisional: the view stays on the draft. The voice provider promotes
+    // the thread (navigating to it) once the first utterance persists, or
+    // deletes it like an abandoned draft if the session closes silent.
+    await startVoiceSession(
+      { environmentId: activeThread.environmentId, threadId: nextThreadId },
+      { provisional: true },
+    );
+  }, [
+    activeProject,
+    activeThread,
+    activeThreadBranch,
+    composerRef,
+    createThread,
+    environmentId,
+    isServerThread,
+    navigate,
+    runtimeMode,
+    startVoiceSession,
+  ]);
+
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
       if (!activeThread) {
@@ -6318,6 +6372,14 @@ function ChatViewContent(props: ChatViewProps) {
                             activeThreadEnvironmentId={activeThread?.environmentId}
                             activeThread={activeThread}
                             isServerThread={isServerThread}
+                            realtimeVoiceCapability={
+                              serverConfig?.environment.capabilities.realtimeVoice
+                            }
+                            startVoiceFromDraft={
+                              isLocalDraftThread && activeProject !== null
+                                ? startVoiceFromDraft
+                                : undefined
+                            }
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}

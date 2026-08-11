@@ -102,6 +102,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { VoiceEntryButton } from "../voice/VoiceEntryButton";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -502,6 +503,8 @@ export interface ChatComposerProps {
   activeThreadEnvironmentId: EnvironmentId | undefined;
   activeThread: Thread | undefined;
   isServerThread: boolean;
+  realtimeVoiceCapability: boolean | undefined;
+  startVoiceFromDraft?: (() => Promise<void>) | undefined;
   isLocalDraftThread: boolean;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -610,7 +613,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
-    isServerThread: _isServerThread,
+    isServerThread,
+    realtimeVoiceCapability,
+    startVoiceFromDraft,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -3182,6 +3187,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 }
                 className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
               >
+                <VoiceEntryButton
+                  threadRef={isServerThread ? routeThreadRef : null}
+                  realtimeVoiceCapability={realtimeVoiceCapability}
+                  onStartFromDraft={
+                    !isServerThread && selectedProvider === "codex"
+                      ? startVoiceFromDraft
+                      : undefined
+                  }
+                />
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
