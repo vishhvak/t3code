@@ -23,6 +23,8 @@ import {
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
+  ThreadVoiceStartCommand,
+  ThreadVoiceStopCommand,
 } from "./orchestration.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
@@ -53,6 +55,51 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeVoiceStart = Schema.decodeUnknownEffect(ThreadVoiceStartCommand);
+const decodeVoiceStop = Schema.decodeUnknownEffect(ThreadVoiceStopCommand);
+
+it.effect("round-trips voice start and stop commands", () =>
+  Effect.gen(function* () {
+    const start = yield* decodeVoiceStart({
+      type: "thread.voice.start",
+      commandId: "cmd-voice-start",
+      threadId: "thread-1",
+      sdp: "v=0\r\n",
+      createdAt: "2026-08-10T00:00:00.000Z",
+    });
+    const stop = yield* decodeVoiceStop({
+      type: "thread.voice.stop",
+      commandId: "cmd-voice-stop",
+      threadId: "thread-1",
+      createdAt: "2026-08-10T00:00:01.000Z",
+    });
+    assert.strictEqual(start.sdp, "v=0\r\n");
+    assert.strictEqual(stop.type, "thread.voice.stop");
+  }),
+);
+
+it.effect("decodes a voice lifecycle event", () =>
+  Effect.gen(function* () {
+    const event = yield* decodeOrchestrationEvent({
+      sequence: 1,
+      eventId: "event-voice-start",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      occurredAt: "2026-08-10T00:00:00.000Z",
+      commandId: "cmd-voice-start",
+      causationEventId: null,
+      correlationId: "cmd-voice-start",
+      metadata: {},
+      type: "thread.voice-session-started",
+      payload: {
+        threadId: "thread-1",
+        sdp: "v=0\r\n",
+        startedAt: "2026-08-10T00:00:00.000Z",
+      },
+    });
+    assert.strictEqual(event.type, "thread.voice-session-started");
+  }),
+);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {

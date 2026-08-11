@@ -155,6 +155,9 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.metadata.updated",
   "thread.token-usage.updated",
   "thread.realtime.started",
+  "thread.realtime.sdp",
+  "thread.realtime.transcript.delta",
+  "thread.realtime.transcript.done",
   "thread.realtime.item-added",
   "thread.realtime.audio.delta",
   "thread.realtime.error",
@@ -206,6 +209,9 @@ const ThreadStateChangedType = Schema.Literal("thread.state.changed");
 const ThreadMetadataUpdatedType = Schema.Literal("thread.metadata.updated");
 const ThreadTokenUsageUpdatedType = Schema.Literal("thread.token-usage.updated");
 const ThreadRealtimeStartedType = Schema.Literal("thread.realtime.started");
+const ThreadRealtimeSdpType = Schema.Literal("thread.realtime.sdp");
+const ThreadRealtimeTranscriptDeltaType = Schema.Literal("thread.realtime.transcript.delta");
+const ThreadRealtimeTranscriptDoneType = Schema.Literal("thread.realtime.transcript.done");
 const ThreadRealtimeItemAddedType = Schema.Literal("thread.realtime.item-added");
 const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta");
 const ThreadRealtimeErrorType = Schema.Literal("thread.realtime.error");
@@ -334,6 +340,17 @@ const ThreadRealtimeStartedPayload = Schema.Struct({
   realtimeSessionId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type ThreadRealtimeStartedPayload = typeof ThreadRealtimeStartedPayload.Type;
+
+const RealtimeTranscriptRole = Schema.Literals(["user", "assistant"]);
+const ThreadRealtimeSdpPayload = Schema.Struct({ sdp: Schema.String });
+const ThreadRealtimeTranscriptDeltaPayload = Schema.Struct({
+  role: RealtimeTranscriptRole,
+  delta: Schema.String,
+});
+const ThreadRealtimeTranscriptDonePayload = Schema.Struct({
+  role: RealtimeTranscriptRole,
+  text: Schema.String,
+});
 
 const ThreadRealtimeItemAddedPayload = Schema.Struct({
   item: Schema.Unknown,
@@ -845,6 +862,24 @@ const ProviderRuntimeThreadRealtimeStartedEvent = Schema.Struct({
 export type ProviderRuntimeThreadRealtimeStartedEvent =
   typeof ProviderRuntimeThreadRealtimeStartedEvent.Type;
 
+const ProviderRuntimeThreadRealtimeSdpEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ThreadRealtimeSdpType,
+  payload: ThreadRealtimeSdpPayload,
+});
+
+const ProviderRuntimeThreadRealtimeTranscriptDeltaEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ThreadRealtimeTranscriptDeltaType,
+  payload: ThreadRealtimeTranscriptDeltaPayload,
+});
+
+const ProviderRuntimeThreadRealtimeTranscriptDoneEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ThreadRealtimeTranscriptDoneType,
+  payload: ThreadRealtimeTranscriptDonePayload,
+});
+
 const ProviderRuntimeThreadRealtimeItemAddedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: ThreadRealtimeItemAddedType,
@@ -1146,6 +1181,9 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadMetadataUpdatedEvent,
   ProviderRuntimeThreadTokenUsageUpdatedEvent,
   ProviderRuntimeThreadRealtimeStartedEvent,
+  ProviderRuntimeThreadRealtimeSdpEvent,
+  ProviderRuntimeThreadRealtimeTranscriptDeltaEvent,
+  ProviderRuntimeThreadRealtimeTranscriptDoneEvent,
   ProviderRuntimeThreadRealtimeItemAddedEvent,
   ProviderRuntimeThreadRealtimeAudioDeltaEvent,
   ProviderRuntimeThreadRealtimeErrorEvent,

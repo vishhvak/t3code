@@ -537,7 +537,52 @@ export const BackgroundActivitySettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
+/**
+ * Realtime voices the codex app-server accepts on thread/realtime/start
+ * (snake_case wire names). "marin" is upstream's default for the current
+ * realtime model family.
+ */
+export const VOICE_MODE_VOICES = [
+  "alloy",
+  "arbor",
+  "ash",
+  "ballad",
+  "breeze",
+  "cedar",
+  "coral",
+  "cove",
+  "echo",
+  "ember",
+  "juniper",
+  "maple",
+  "marin",
+  "sage",
+  "shimmer",
+  "sol",
+  "spruce",
+  "vale",
+  "verse",
+] as const;
+export const VoiceModeVoice = Schema.Literals(VOICE_MODE_VOICES);
+export type VoiceModeVoice = typeof VoiceModeVoice.Type;
+
+/**
+ * Which realtime engine family a voice session runs on. "live" is the
+ * full-duplex frameless family (protocol v3): it listens while speaking and
+ * carries the delegation handoff channels. "turn_based" is the classic
+ * realtime family (protocol v2): the model hard-stops when interrupted and
+ * the protocol ignores delegation channel routing. Codex resolves each
+ * family's default model itself.
+ */
+export const VoiceModeEngine = Schema.Literals(["live", "turn_based"]);
+export type VoiceModeEngine = typeof VoiceModeEngine.Type;
+
 export const ServerSettings = Schema.Struct({
+  voiceModeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  voiceModeVoice: VoiceModeVoice.pipe(Schema.withDecodingDefault(Effect.succeed("marin" as const))),
+  voiceModeEngine: VoiceModeEngine.pipe(
+    Schema.withDecodingDefault(Effect.succeed("live" as const)),
+  ),
   // Legacy token-by-token assistant output. Deliberately a fresh key (was
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
   // including prior opt-ins, resets to the buffered default.
@@ -706,6 +751,9 @@ const OpenCodeSettingsPatch = Schema.Struct({
 
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
+  voiceModeEnabled: Schema.optionalKey(Schema.Boolean),
+  voiceModeVoice: Schema.optionalKey(VoiceModeVoice),
+  voiceModeEngine: Schema.optionalKey(VoiceModeEngine),
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(

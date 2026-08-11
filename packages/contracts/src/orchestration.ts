@@ -361,6 +361,11 @@ export const ThreadTitleRegeneration = Schema.Struct({
 });
 export type ThreadTitleRegeneration = typeof ThreadTitleRegeneration.Type;
 
+export const ThreadVoiceSession = Schema.Struct({
+  startedAt: IsoDateTime,
+});
+export type ThreadVoiceSession = typeof ThreadVoiceSession.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -397,6 +402,7 @@ export const OrchestrationThread = Schema.Struct({
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
+  voiceSession: Schema.optional(Schema.NullOr(ThreadVoiceSession)),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
@@ -455,6 +461,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
+  voiceSession: Schema.optional(Schema.NullOr(ThreadVoiceSession)),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
@@ -895,6 +902,23 @@ const ThreadSessionStopCommand = Schema.Struct({
   onlyIfSettled: Schema.optional(Schema.Boolean),
 });
 
+export const ThreadVoiceStartCommand = Schema.Struct({
+  type: Schema.Literal("thread.voice.start"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  sdp: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ThreadVoiceStartCommand = typeof ThreadVoiceStartCommand.Type;
+
+export const ThreadVoiceStopCommand = Schema.Struct({
+  type: Schema.Literal("thread.voice.stop"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadVoiceStopCommand = typeof ThreadVoiceStopCommand.Type;
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -919,6 +943,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadVoiceStartCommand,
+  ThreadVoiceStopCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -947,6 +973,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadVoiceStartCommand,
+  ThreadVoiceStopCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -974,6 +1002,16 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
   createdAt: IsoDateTime,
 });
 
@@ -1027,6 +1065,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
+  ThreadMessageAppendCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
@@ -1068,6 +1107,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.reverted",
   "thread.session-stop-requested",
   "thread.session-set",
+  "thread.voice-session-started",
+  "thread.voice-session-stopped",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
@@ -1284,6 +1325,17 @@ export const ThreadSessionSetPayload = Schema.Struct({
   session: OrchestrationSession,
 });
 
+export const ThreadVoiceSessionStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  sdp: Schema.String,
+  startedAt: IsoDateTime,
+});
+
+export const ThreadVoiceSessionStoppedPayload = Schema.Struct({
+  threadId: ThreadId,
+  stoppedAt: IsoDateTime,
+});
+
 export const ThreadProposedPlanUpsertedPayload = Schema.Struct({
   threadId: ThreadId,
   proposedPlan: OrchestrationProposedPlan,
@@ -1459,6 +1511,16 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.voice-session-started"),
+    payload: ThreadVoiceSessionStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.voice-session-stopped"),
+    payload: ThreadVoiceSessionStoppedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.proposed-plan-upserted"),
     payload: ThreadProposedPlanUpsertedPayload,
   }),
@@ -1475,6 +1537,37 @@ export const OrchestrationEvent = Schema.Union([
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
+export const OrchestrationThreadRealtimeEvent = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("thread.realtime.started"),
+    threadId: ThreadId,
+    realtimeSessionId: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.realtime.sdp"),
+    threadId: ThreadId,
+    sdp: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.realtime.transcript.delta"),
+    threadId: ThreadId,
+    role: Schema.Literals(["user", "assistant"]),
+    delta: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.realtime.transcript.done"),
+    threadId: ThreadId,
+    role: Schema.Literals(["user", "assistant"]),
+    text: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.realtime.closed"),
+    threadId: ThreadId,
+    reason: Schema.optional(TrimmedNonEmptyString),
+  }),
+]);
+export type OrchestrationThreadRealtimeEvent = typeof OrchestrationThreadRealtimeEvent.Type;
+
 export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
@@ -1486,6 +1579,10 @@ export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("event"),
     event: OrchestrationEvent,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("realtime"),
+    event: OrchestrationThreadRealtimeEvent,
   }),
 ]);
 export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem.Type;

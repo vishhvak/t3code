@@ -1,9 +1,10 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentCapabilities, ExecutionEnvironmentDescriptor } from "./environment.ts";
 
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
+const decodeCapabilities = Schema.decodeUnknownSync(ExecutionEnvironmentCapabilities);
 
 const descriptor = {
   environmentId: "environment-1",
@@ -24,6 +25,15 @@ describe("ExecutionEnvironmentDescriptor", () => {
         ...descriptor,
         capabilities: { ...descriptor.capabilities, pullRequests: true },
       }).capabilities.pullRequests,
+    ).toBe(true);
+  });
+});
+
+describe("ExecutionEnvironmentCapabilities", () => {
+  it("keeps realtime voice capability absent for older servers", () => {
+    expect(decodeCapabilities({ repositoryIdentity: true }).realtimeVoice).toBeUndefined();
+    expect(
+      decodeCapabilities({ repositoryIdentity: true, realtimeVoice: true }).realtimeVoice,
     ).toBe(true);
   });
 });

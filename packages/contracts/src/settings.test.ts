@@ -16,6 +16,30 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("ServerSettings voice mode", () => {
+  it("defaults off for older settings payloads and accepts an explicit patch", () => {
+    expect(decodeServerSettings({}).voiceModeEnabled).toBe(false);
+    expect(decodeServerSettingsPatch({ voiceModeEnabled: true })).toEqual({
+      voiceModeEnabled: true,
+    });
+  });
+
+  it("defaults the voice engine to live and patches to turn_based", () => {
+    expect(decodeServerSettings({}).voiceModeEngine).toBe("live");
+    expect(decodeServerSettingsPatch({ voiceModeEngine: "turn_based" })).toEqual({
+      voiceModeEngine: "turn_based",
+    });
+  });
+
+  it("defaults the realtime voice to marin and patches to a known voice", () => {
+    expect(decodeServerSettings({}).voiceModeVoice).toBe("marin");
+    expect(decodeServerSettings({ voiceModeVoice: "cedar" }).voiceModeVoice).toBe("cedar");
+    expect(decodeServerSettingsPatch({ voiceModeVoice: "sage" })).toEqual({
+      voiceModeVoice: "sage",
+    });
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);
