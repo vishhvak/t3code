@@ -63,7 +63,7 @@ export interface McpSessionRegistryOptions {
  * Liveness is refreshed both by MCP traffic and by `touch` on every provider
  * turn, so a session that is still doing work never expires no matter how long
  * it goes between browser tool calls. This window therefore only bounds
- * credentials whose session died without a clean stop — the normal paths
+ * credentials whose session died without a clean stop. The normal paths
  * (`stopSession`, `stopAll`) revoke eagerly and do not wait for it.
  *
  * The bound matters because `/mcp` is mounted outside the environment auth
@@ -128,7 +128,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        capabilities: new Set(["preview"]),
+        capabilities: new Set(["preview", "threads"]),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
