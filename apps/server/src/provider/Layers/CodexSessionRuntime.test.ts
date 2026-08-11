@@ -16,6 +16,8 @@ import {
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
+  buildCodexRealtimeStartParams,
+  CODEX_REALTIME_START_INSTRUCTIONS,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
   openCodexThread,
@@ -37,6 +39,41 @@ describe("CodexSessionRuntimeIdentifierGenerationError", () => {
       "Failed to generate Codex App Server identifier for provider-event.",
     );
   });
+});
+
+it("builds the T1 tagged WebRTC v3 realtime request", () => {
+  NodeAssert.deepStrictEqual(buildCodexRealtimeStartParams("provider-thread-1", "v=0\r\n"), {
+    threadId: "provider-thread-1",
+    transport: { type: "webrtc", sdp: "v=0\r\n" },
+    outputModality: "audio",
+    version: "v3",
+    realtimeStartInstructions: CODEX_REALTIME_START_INSTRUCTIONS,
+  });
+});
+
+it("maps the turn_based engine to protocol v2 and leaves the model to codex", () => {
+  const params = buildCodexRealtimeStartParams(
+    "provider-thread-1",
+    "v=0\r\n",
+    undefined,
+    "turn_based",
+  );
+  NodeAssert.equal(params.version, "v2");
+  NodeAssert.equal("model" in params, false);
+});
+
+it("carries the configured realtime voice on the start request", () => {
+  NodeAssert.deepStrictEqual(
+    buildCodexRealtimeStartParams("provider-thread-1", "v=0\r\n", "cedar"),
+    {
+      threadId: "provider-thread-1",
+      transport: { type: "webrtc", sdp: "v=0\r\n" },
+      outputModality: "audio",
+      version: "v3",
+      realtimeStartInstructions: CODEX_REALTIME_START_INSTRUCTIONS,
+      voice: "cedar",
+    },
+  );
 });
 
 function makeThreadOpenResponse(

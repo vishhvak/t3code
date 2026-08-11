@@ -623,6 +623,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pinOrderKey: null,
             titleRegenerationRequestId: null,
             titleRegenerationStartedAt: null,
+            voiceSessionStartedAt: null,
             latestUserMessageAt: null,
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
@@ -883,6 +884,26 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
+        case "thread.voice-session-started":
+        case "thread.voice-session-stopped": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            voiceSessionStartedAt:
+              event.type === "thread.voice-session-started" ? event.payload.startedAt : null,
+            updatedAt:
+              event.type === "thread.voice-session-started"
+                ? event.payload.startedAt
+                : event.payload.stoppedAt,
+          });
           return;
         }
 

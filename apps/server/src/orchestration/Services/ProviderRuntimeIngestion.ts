@@ -9,6 +9,8 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
+import type * as Stream from "effect/Stream";
+import type { OrchestrationThreadRealtimeEvent } from "@t3tools/contracts";
 
 /**
  * ProviderRuntimeIngestionShape - Service API for runtime ingestion lifecycle.
@@ -30,6 +32,8 @@ export interface ProviderRuntimeIngestionShape {
    * Intended for test use to replace timing-sensitive sleeps.
    */
   readonly drain: Effect.Effect<void>;
+
+  readonly streamRealtimeEvents?: Stream.Stream<OrchestrationThreadRealtimeEvent>;
 }
 
 /**

@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 
 const isServerEnvironmentIdPersistenceError = Schema.is(
   ServerEnvironment.ServerEnvironmentIdPersistenceError,
@@ -71,6 +72,21 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.connectionProbe).toBe(true);
       expect(second.capabilities.pullRequests).toBe(true);
       expect(second.capabilities.threadTitleRegeneration).toBe(true);
+    }),
+  );
+
+  it.effect("advertises realtime voice only when the server setting is on", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-voice-capability-" });
+      const layer = makeServerEnvironmentLayer(baseDir).pipe(
+        Layer.provideMerge(ServerSettingsService.layerTest({ voiceModeEnabled: true })),
+      );
+      const descriptor = yield* Effect.gen(function* () {
+        const environment = yield* ServerEnvironment.ServerEnvironment;
+        return yield* environment.getDescriptor;
+      }).pipe(Effect.provide(layer));
+      expect(descriptor.capabilities.realtimeVoice).toBe(true);
     }),
   );
 

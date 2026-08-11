@@ -47,7 +47,11 @@ import {
   providerTurnMetricAttributes,
   withMetrics,
 } from "../../observability/Metrics.ts";
-import { type ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
+import {
+  type ProviderAdapterError,
+  ProviderUnsupportedError,
+  ProviderValidationError,
+} from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
@@ -811,6 +815,35 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const startRealtime: ProviderServiceMethod<"startRealtime"> = Effect.fn("startRealtime")(
+    function* (input) {
+      const routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.startRealtime",
+        allowRecovery: true,
+      });
+      if (!routed.adapter.startRealtime) {
+        return yield* new ProviderUnsupportedError({ provider: routed.adapter.provider });
+      }
+      yield* routed.adapter.startRealtime(routed.threadId, input.sdp);
+    },
+  );
+
+  const stopRealtime: ProviderServiceMethod<"stopRealtime"> = Effect.fn("stopRealtime")(
+    function* (input) {
+      const routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.stopRealtime",
+        allowRecovery: false,
+      });
+      if (!routed.isActive) return;
+      if (!routed.adapter.stopRealtime) {
+        return yield* new ProviderUnsupportedError({ provider: routed.adapter.provider });
+      }
+      yield* routed.adapter.stopRealtime(routed.threadId);
+    },
+  );
+
   const respondToRequest: ProviderServiceMethod<"respondToRequest"> = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1129,6 +1162,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    startRealtime,
+    stopRealtime,
     respondToRequest,
     respondToUserInput,
     stopSession,

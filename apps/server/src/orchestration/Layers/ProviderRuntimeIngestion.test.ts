@@ -105,6 +105,8 @@ function createProviderServiceHarness() {
     startSession: () => unsupported(),
     sendTurn: () => unsupported(),
     interruptTurn: () => unsupported(),
+    startRealtime: () => unsupported(),
+    stopRealtime: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
@@ -319,8 +321,108 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      collectRealtime: (count: number) =>
+        runtime!.runPromise(
+          (ingestion.streamRealtimeEvents ?? Stream.empty).pipe(
+            Stream.take(count),
+            Stream.runCollect,
+            Effect.map((events) => Array.from(events)),
+          ),
+        ),
     };
   }
+
+  it("routes observed realtime events and durably flushes finished transcripts", async () => {
+    const harness = await createHarness({ serverSettings: { voiceModeEnabled: true } });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.voice.start",
+        commandId: CommandId.make("cmd-voice-start"),
+        threadId: asThreadId("thread-1"),
+        sdp: "browser-offer",
+        createdAt: "2026-08-10T00:00:00.000Z",
+      }),
+    );
+
+    const received = harness.collectRealtime(7);
+    await Effect.runPromise(Effect.yieldNow);
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-08-10T00:00:01.000Z",
+    } as const;
+    harness.emit({
+      ...base,
+      type: "thread.realtime.started",
+      eventId: asEventId("voice-started"),
+      payload: { realtimeSessionId: "session-1" },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.sdp",
+      eventId: asEventId("voice-sdp"),
+      payload: { sdp: "server-answer" },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.transcript.delta",
+      eventId: asEventId("voice-user-delta"),
+      payload: { role: "user", delta: "Hi" },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.transcript.delta",
+      eventId: asEventId("voice-assistant-delta-1"),
+      payload: { role: "assistant", delta: "Hello " },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.transcript.done",
+      eventId: asEventId("voice-user-done"),
+      payload: { role: "user", text: "Hi there" },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.transcript.delta",
+      eventId: asEventId("voice-assistant-delta-2"),
+      payload: { role: "assistant", delta: "there" },
+    });
+    harness.emit({
+      ...base,
+      type: "thread.realtime.closed",
+      eventId: asEventId("voice-closed"),
+      payload: { reason: "requested" },
+    });
+
+    await harness.drain();
+    const events = await received;
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.realtime.started",
+      "thread.realtime.sdp",
+      "thread.realtime.transcript.delta",
+      "thread.realtime.transcript.delta",
+      "thread.realtime.transcript.done",
+      "thread.realtime.transcript.delta",
+      "thread.realtime.closed",
+    ]);
+    expect(events[1]).toMatchObject({ sdp: "server-answer" });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.voiceSession === null &&
+        entry.messages.some((message) => message.role === "user" && message.text === "Hi there") &&
+        entry.messages.some(
+          (message) => message.role === "assistant" && message.text === "Hello there",
+        ),
+    );
+    expect(thread.messages.map(({ role, text }) => ({ role, text }))).toEqual(
+      expect.arrayContaining([
+        { role: "user", text: "Hi there" },
+        { role: "assistant", text: "Hello there" },
+      ]),
+    );
+  });
 
   it("maps turn started/completed events into thread session updates", async () => {
     const harness = await createHarness();

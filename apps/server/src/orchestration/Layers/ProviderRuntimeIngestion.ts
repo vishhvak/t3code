@@ -16,6 +16,7 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationProposedPlan,
   type OrchestrationThread,
+  type OrchestrationThreadRealtimeEvent,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
@@ -26,6 +27,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
@@ -875,6 +877,8 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const realtimeEventPubSub = yield* PubSub.unbounded<OrchestrationThreadRealtimeEvent>();
+  const realtimeTranscriptBuffers = new Map<string, string>();
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1496,6 +1500,81 @@ const make = Effect.gen(function* () {
       const hasPendingTurnStart =
         Option.isSome(pendingTurnStart) && thread.session?.status === "starting";
 
+      const transcriptKey = (role: "user" | "assistant") => `${thread.id}:${role}`;
+      if (event.type === "thread.realtime.started") {
+        yield* PubSub.publish(realtimeEventPubSub, {
+          type: event.type,
+          threadId: thread.id,
+          ...(event.payload.realtimeSessionId
+            ? { realtimeSessionId: event.payload.realtimeSessionId }
+            : {}),
+        });
+      } else if (event.type === "thread.realtime.sdp") {
+        yield* PubSub.publish(realtimeEventPubSub, {
+          type: event.type,
+          threadId: thread.id,
+          sdp: event.payload.sdp,
+        });
+      } else if (event.type === "thread.realtime.transcript.delta") {
+        realtimeTranscriptBuffers.set(
+          transcriptKey(event.payload.role),
+          `${realtimeTranscriptBuffers.get(transcriptKey(event.payload.role)) ?? ""}${event.payload.delta}`,
+        );
+        yield* PubSub.publish(realtimeEventPubSub, {
+          type: event.type,
+          threadId: thread.id,
+          role: event.payload.role,
+          delta: event.payload.delta,
+        });
+      } else if (event.type === "thread.realtime.transcript.done") {
+        realtimeTranscriptBuffers.delete(transcriptKey(event.payload.role));
+        yield* PubSub.publish(realtimeEventPubSub, {
+          type: event.type,
+          threadId: thread.id,
+          role: event.payload.role,
+          text: event.payload.text,
+        });
+        if (event.payload.text.length > 0) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.append",
+            commandId: yield* providerCommandId(event, "realtime-transcript-done"),
+            threadId: thread.id,
+            messageId: MessageId.make(`realtime:${event.payload.role}:${event.eventId}`),
+            role: event.payload.role,
+            text: event.payload.text,
+            createdAt: now,
+          });
+        }
+      } else if (event.type === "thread.realtime.closed") {
+        yield* PubSub.publish(realtimeEventPubSub, {
+          type: event.type,
+          threadId: thread.id,
+          ...(event.payload.reason ? { reason: event.payload.reason } : {}),
+        });
+        const bufferedAssistant = realtimeTranscriptBuffers.get(transcriptKey("assistant")) ?? "";
+        realtimeTranscriptBuffers.delete(transcriptKey("assistant"));
+        realtimeTranscriptBuffers.delete(transcriptKey("user"));
+        if (bufferedAssistant.length > 0) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.append",
+            commandId: yield* providerCommandId(event, "realtime-assistant-close-fallback"),
+            threadId: thread.id,
+            messageId: MessageId.make(`realtime:assistant:${event.eventId}`),
+            role: "assistant",
+            text: bufferedAssistant,
+            createdAt: now,
+          });
+        }
+        if (thread.voiceSession != null) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.voice.stop",
+            commandId: yield* providerCommandId(event, "realtime-closed"),
+            threadId: thread.id,
+            createdAt: now,
+          });
+        }
+      }
+
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
       const missingTurnForActiveTurn = activeTurnId !== null && eventTurnId === undefined;
@@ -2062,6 +2141,9 @@ const make = Effect.gen(function* () {
   return {
     start,
     drain: worker.drain,
+    get streamRealtimeEvents() {
+      return Stream.fromPubSub(realtimeEventPubSub);
+    },
   } satisfies ProviderRuntimeIngestionShape;
 });
 

@@ -32,6 +32,8 @@ import {
   ThreadUnsnoozedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
+  ThreadVoiceSessionStartedPayload,
+  ThreadVoiceSessionStoppedPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
@@ -310,6 +312,7 @@ export function projectEvent(
             activities: [],
             checkpoints: [],
             session: null,
+            voiceSession: null,
           },
           event.type,
           "thread",
@@ -611,6 +614,38 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.voice-session-started":
+      return decodeForEvent(
+        ThreadVoiceSessionStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            voiceSession: { startedAt: payload.startedAt },
+            updatedAt: payload.startedAt,
+          }),
+        })),
+      );
+
+    case "thread.voice-session-stopped":
+      return decodeForEvent(
+        ThreadVoiceSessionStoppedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            voiceSession: null,
+            updatedAt: payload.stoppedAt,
+          }),
+        })),
+      );
 
     case "thread.proposed-plan-upserted":
       return Effect.gen(function* () {

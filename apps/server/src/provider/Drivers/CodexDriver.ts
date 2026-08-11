@@ -158,6 +158,18 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const adapter = yield* makeCodexAdapter(effectiveConfig, {
         instanceId,
         environment: processEnv,
+        voiceModeEnabled: Effect.map(
+          serverSettings.getSettings,
+          (settings) => settings.voiceModeEnabled,
+        ).pipe(Effect.orElseSucceed(() => false)),
+        voiceModeVoice: Effect.map(
+          serverSettings.getSettings,
+          (settings) => settings.voiceModeVoice,
+        ).pipe(Effect.orElseSucceed(() => undefined)),
+        voiceModeEngine: Effect.map(
+          serverSettings.getSettings,
+          (settings) => settings.voiceModeEngine,
+        ).pipe(Effect.orElseSucceed(() => undefined)),
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       });
       const textGeneration = yield* makeCodexTextGeneration(effectiveConfig, processEnv);

@@ -58,7 +58,9 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
-      | "thread.session-stop-requested";
+      | "thread.session-stop-requested"
+      | "thread.voice-session-started"
+      | "thread.voice-session-stopped";
   }
 >;
 
@@ -484,6 +486,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly pendingTurnStart?: boolean;
+      readonly forceRestartForRealtime?: boolean;
     },
   ) {
     const thread = yield* resolveThread(threadId);
@@ -685,7 +688,8 @@ const make = Effect.gen(function* () {
         !cwdChanged &&
         !instanceChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        options?.forceRestartForRealtime !== true
       ) {
         return existingSessionThreadId;
       }
@@ -710,6 +714,7 @@ const make = Effect.gen(function* () {
         instanceChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        forceRestartForRealtime: options?.forceRestartForRealtime === true,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
@@ -1369,6 +1374,20 @@ const make = Effect.gen(function* () {
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
+      case "thread.voice-session-started":
+        yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
+          forceRestartForRealtime: true,
+        });
+        if (!providerService.startRealtime) return;
+        yield* providerService.startRealtime({
+          threadId: event.payload.threadId,
+          sdp: event.payload.sdp,
+        });
+        return;
+      case "thread.voice-session-stopped":
+        if (!providerService.stopRealtime) return;
+        yield* providerService.stopRealtime({ threadId: event.payload.threadId });
+        return;
     }
   });
 
@@ -1407,7 +1426,9 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
-        event.type === "thread.session-stop-requested"
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.voice-session-started" ||
+        event.type === "thread.voice-session-stopped"
       ) {
         return yield* worker.enqueue(event);
       }

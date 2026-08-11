@@ -85,6 +85,9 @@ export interface CodexAdapterLiveOptions {
   >;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly voiceModeEnabled?: Effect.Effect<boolean>;
+  readonly voiceModeVoice?: Effect.Effect<string | undefined>;
+  readonly voiceModeEngine?: Effect.Effect<"live" | "turn_based" | undefined>;
 }
 
 interface CodexAdapterSessionContext {
@@ -1447,6 +1450,49 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "thread/realtime/sdp") {
+    const payload = readPayload(EffectCodexSchema.V2ThreadRealtimeSdpNotification, event.payload);
+    return payload
+      ? [
+          {
+            type: "thread.realtime.sdp",
+            ...runtimeEventBase(event, canonicalThreadId),
+            payload: { sdp: payload.sdp },
+          },
+        ]
+      : [];
+  }
+
+  if (event.method === "thread/realtime/transcript/delta") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeTranscriptDeltaNotification,
+      event.payload,
+    );
+    if (!payload || (payload.role !== "user" && payload.role !== "assistant")) return [];
+    return [
+      {
+        type: "thread.realtime.transcript.delta",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: { role: payload.role, delta: payload.delta },
+      },
+    ];
+  }
+
+  if (event.method === "thread/realtime/transcript/done") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeTranscriptDoneNotification,
+      event.payload,
+    );
+    if (!payload || (payload.role !== "user" && payload.role !== "assistant")) return [];
+    return [
+      {
+        type: "thread.realtime.transcript.done",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: { role: payload.role, text: payload.text },
+      },
+    ];
+  }
+
   if (event.method === "thread/realtime/itemAdded") {
     const payload = readPayload(
       EffectCodexSchema.V2ThreadRealtimeItemAddedNotification,
@@ -1663,6 +1709,21 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const voiceModeEnabled = yield* options?.voiceModeEnabled ?? Effect.succeed(false);
+        const appServerArgs = [
+          ...(mcpSession
+            ? [
+                "-c",
+                `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
+                "-c",
+                'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+              ]
+            : []),
+          // Thread-vs-subagent steering for voice sessions lives in the
+          // realtime start instructions (see CODEX_REALTIME_START_INSTRUCTIONS),
+          // so internal subagents stay available for explicit requests.
+          ...(voiceModeEnabled ? ["--enable", "realtime_conversation"] : []),
+        ];
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -1685,14 +1746,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   ...(options?.environment ?? process.env),
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
-                appServerArgs: [
-                  "-c",
-                  `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
-                  "-c",
-                  'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
-                ],
               }
             : {}),
+          ...(appServerArgs.length > 0 ? { appServerArgs } : {}),
+          ...(voiceModeEnabled ? { realtimeVoiceEnabled: true } : {}),
         };
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;
@@ -1943,6 +2000,30 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       yield* stopSessionInternal(session);
     });
 
+  const startRealtime: NonNullable<CodexAdapterShape["startRealtime"]> = (threadId, sdp) =>
+    Effect.gen(function* () {
+      const voice = yield* options?.voiceModeVoice ?? Effect.succeed(undefined);
+      const engine = yield* options?.voiceModeEngine ?? Effect.succeed(undefined);
+      const session = yield* requireSession(threadId);
+      yield* session.runtime
+        .startRealtime(sdp, voice, engine)
+        .pipe(
+          Effect.mapError((cause) =>
+            mapCodexRuntimeError(threadId, "thread/realtime/start", cause),
+          ),
+        );
+    });
+
+  const stopRealtime: NonNullable<CodexAdapterShape["stopRealtime"]> = (threadId) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.stopRealtime),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "thread/realtime/stop", cause),
+      ),
+    );
+
   const listSessions: CodexAdapterShape["listSessions"] = () =>
     Effect.forEach(
       Array.from(sessions.values()).filter((session) => !session.stopped),
@@ -1975,6 +2056,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    startRealtime,
+    stopRealtime,
     readThread,
     rollbackThread,
     respondToRequest,

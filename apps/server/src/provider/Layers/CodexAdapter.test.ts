@@ -86,6 +86,8 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   public readonly interruptTurnImpl = vi.fn(
     (_turnId?: TurnId): Promise<void> => Promise.resolve(undefined),
   );
+  public readonly startRealtimeImpl = vi.fn((_sdp: string): Promise<void> => Promise.resolve());
+  public readonly stopRealtimeImpl = vi.fn((): Promise<void> => Promise.resolve());
 
   public readonly readThreadImpl = vi.fn(
     (): Promise<CodexThreadSnapshot> =>
@@ -134,6 +136,12 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   interruptTurn(turnId?: TurnId) {
     return Effect.promise(() => this.interruptTurnImpl(turnId));
   }
+
+  startRealtime(sdp: string) {
+    return Effect.promise(() => this.startRealtimeImpl(sdp));
+  }
+
+  stopRealtime = Effect.promise(() => this.stopRealtimeImpl());
 
   readThread = Effect.promise(() => this.readThreadImpl());
 
@@ -286,6 +294,62 @@ validationLayer("CodexAdapterLive validation", (it) => {
         threadId: asThreadId("thread-1"),
         runtimeMode: "full-access",
       });
+    }),
+  );
+
+  it.effect("forwards realtime start and stop to the active Codex runtime", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("voice-thread"),
+        runtimeMode: "full-access",
+      });
+      const runtime = validationRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.ok(adapter.startRealtime);
+      NodeAssert.ok(adapter.stopRealtime);
+      yield* adapter.startRealtime(asThreadId("voice-thread"), "v=0\r\n");
+      yield* adapter.stopRealtime(asThreadId("voice-thread"));
+      NodeAssert.deepStrictEqual(runtime.startRealtimeImpl.mock.calls, [["v=0\r\n"]]);
+      NodeAssert.equal(runtime.stopRealtimeImpl.mock.calls.length, 1);
+    }),
+  );
+});
+
+const voiceRuntimeFactory = makeRuntimeFactory();
+const voiceLayer = it.layer(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: voiceRuntimeFactory.factory,
+        voiceModeEnabled: Effect.succeed(true),
+      });
+    }),
+  ).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+voiceLayer("CodexAdapterLive realtime launch", (it) => {
+  it.effect("enables the realtime feature only for a voice-enabled launch", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("voice-enabled-thread"),
+        runtimeMode: "full-access",
+      });
+      NodeAssert.deepStrictEqual(voiceRuntimeFactory.factory.mock.calls[0]?.[0].appServerArgs, [
+        "--enable",
+        "realtime_conversation",
+      ]);
+      NodeAssert.equal(voiceRuntimeFactory.factory.mock.calls[0]?.[0].realtimeVoiceEnabled, true);
     }),
   );
 });
@@ -826,6 +890,45 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       NodeAssert.equal(firstEvent.value.threadId, "thread-1");
       NodeAssert.equal(firstEvent.value.payload.realtimeSessionId, "realtime-session-1");
+    }),
+  );
+
+  it.effect("maps realtime SDP and interleaved transcript notifications", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const notifications = [
+        {
+          method: "thread/realtime/sdp",
+          payload: { threadId: "thread-1", sdp: "server-answer" },
+          expectedType: "thread.realtime.sdp",
+        },
+        {
+          method: "thread/realtime/transcript/delta",
+          payload: { threadId: "thread-1", role: "user", delta: "Hi" },
+          expectedType: "thread.realtime.transcript.delta",
+        },
+        {
+          method: "thread/realtime/transcript/done",
+          payload: { threadId: "thread-1", role: "assistant", text: "Hello" },
+          expectedType: "thread.realtime.transcript.done",
+        },
+      ] as const;
+
+      for (const [index, notification] of notifications.entries()) {
+        const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+        yield* runtime.emit({
+          id: asEventId(`evt-realtime-${index}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-08-10T00:00:00.000Z",
+          method: notification.method,
+          payload: notification.payload,
+        } satisfies ProviderEvent);
+        const event = yield* Fiber.join(eventFiber);
+        NodeAssert.equal(event._tag, "Some");
+        if (event._tag === "Some") NodeAssert.equal(event.value.type, notification.expectedType);
+      }
     }),
   );
 

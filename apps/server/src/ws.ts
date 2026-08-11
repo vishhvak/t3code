@@ -73,6 +73,7 @@ import {
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProviderRuntimeIngestion from "./orchestration/Services/ProviderRuntimeIngestion.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -358,6 +359,9 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const providerRuntimeIngestion = yield* Effect.serviceOption(
+        ProviderRuntimeIngestion.ProviderRuntimeIngestionService,
+      );
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -1310,13 +1314,20 @@ const makeWsRpcLayer = (
                 event.aggregateId === input.threadId &&
                 isThreadDetailEvent(event);
 
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+              const domainLiveStream = orchestrationEngine.streamDomainEvents.pipe(
                 Stream.filter(isThisThreadDetailEvent),
                 Stream.map((event) => ({
                   kind: "event" as const,
                   event: projectActivityEvent(event),
                 })),
               );
+              const realtimeLiveStream = Option.isSome(providerRuntimeIngestion)
+                ? (providerRuntimeIngestion.value.streamRealtimeEvents ?? Stream.empty).pipe(
+                    Stream.filter((event) => event.threadId === input.threadId),
+                    Stream.map((event) => ({ kind: "realtime" as const, event })),
+                  )
+                : Stream.empty;
+              const liveStream = domainLiveStream.pipe(Stream.merge(realtimeLiveStream));
 
               // Attach live delivery before reading either replay or snapshot state.
               // Otherwise an event published while the snapshot is loading is lost.

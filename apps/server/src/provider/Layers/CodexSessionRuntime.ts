@@ -106,6 +106,7 @@ export interface CodexSessionRuntimeOptions {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
   readonly appServerArgs?: ReadonlyArray<string>;
+  readonly realtimeVoiceEnabled?: boolean;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -118,6 +119,32 @@ export interface CodexSessionRuntimeSendTurnInput {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort | undefined;
   readonly interactionMode?: ProviderInteractionMode;
+}
+
+/**
+ * Developer instructions handed to the backing Codex model when a realtime
+ * voice session starts. One line, because it settles exactly one ambiguity:
+ * spoken requests for a "thread" or "chat" mean real T3 Code threads.
+ */
+export const CODEX_REALTIME_START_INSTRUCTIONS =
+  "In this voice session, when the user asks to create, steer, check, or stop a thread or chat, use the t3_thread_* tools, which operate real T3 Code threads visible in the sidebar; use internal subagents only when the user explicitly asks for a subagent.";
+
+export function buildCodexRealtimeStartParams(
+  threadId: string,
+  sdp: string,
+  voice?: string,
+  engine: "live" | "turn_based" = "live",
+): EffectCodexSchema.V2ThreadRealtimeStartParams {
+  return {
+    threadId,
+    transport: { type: "webrtc", sdp },
+    outputModality: "audio",
+    // Codex resolves each family's default model from the version alone:
+    // v3 is the full-duplex frameless family, v2 the turn-based one.
+    version: engine === "turn_based" ? "v2" : "v3",
+    realtimeStartInstructions: CODEX_REALTIME_START_INSTRUCTIONS,
+    ...(voice !== undefined ? { voice } : {}),
+  };
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -137,6 +164,12 @@ export interface CodexSessionRuntimeShape {
     input: CodexSessionRuntimeSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
   readonly interruptTurn: (turnId?: TurnId) => Effect.Effect<void, CodexSessionRuntimeError>;
+  readonly startRealtime: (
+    sdp: string,
+    voice?: string,
+    engine?: "live" | "turn_based",
+  ) => Effect.Effect<void, CodexSessionRuntimeError>;
+  readonly stopRealtime: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly readThread: Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
   readonly rollbackThread: (
     numTurns: number,
@@ -1832,6 +1865,18 @@ export const makeCodexSessionRuntime = (
             turnId: effectiveTurnId,
           });
         }),
+      startRealtime: (sdp, voice, engine) =>
+        Effect.gen(function* () {
+          const providerThreadId = yield* readProviderThreadId;
+          yield* client.request(
+            "thread/realtime/start",
+            buildCodexRealtimeStartParams(providerThreadId, sdp, voice, engine),
+          );
+        }),
+      stopRealtime: Effect.gen(function* () {
+        const providerThreadId = yield* readProviderThreadId;
+        yield* client.request("thread/realtime/stop", { threadId: providerThreadId });
+      }),
       readThread: Effect.gen(function* () {
         const providerThreadId = yield* readProviderThreadId;
         const response = yield* client.request("thread/read", {

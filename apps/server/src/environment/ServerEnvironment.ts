@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -14,6 +15,7 @@ import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 
 export class ServerEnvironmentIdPersistenceError extends Schema.TaggedErrorClass<ServerEnvironmentIdPersistenceError>()(
   "ServerEnvironmentIdPersistenceError",
@@ -69,6 +71,7 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const hostPlatform = yield* HostProcessPlatform;
   const hostArchitecture = yield* HostProcessArchitecture;
+  const serverSettings = yield* Effect.serviceOption(ServerSettingsService);
 
   const readPersistedEnvironmentId = Effect.gen(function* () {
     const exists = yield* fileSystem.exists(serverConfig.environmentIdPath).pipe(
@@ -132,7 +135,7 @@ export const make = Effect.gen(function* () {
     launcherManaged: launcher.managed,
   });
 
-  const descriptor: ExecutionEnvironmentDescriptor = {
+  const descriptor = (voiceModeEnabled: boolean): ExecutionEnvironmentDescriptor => ({
     environmentId,
     label,
     platform: {
@@ -149,14 +152,19 @@ export const make = Effect.gen(function* () {
       threadPinning: true,
       threadPinReorder: true,
       threadTitleRegeneration: true,
+      ...(voiceModeEnabled ? { realtimeVoice: true } : {}),
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       ...(serverSelfUpdate === "boot-service" ? { serverSelfUpdateProgress: true } : {}),
     },
-  };
+  });
 
   return ServerEnvironment.of({
     getEnvironmentId: Effect.succeed(environmentId),
-    getDescriptor: Effect.succeed(descriptor),
+    getDescriptor: Option.isSome(serverSettings)
+      ? Effect.map(serverSettings.value.getSettings, (settings) =>
+          descriptor(settings.voiceModeEnabled),
+        ).pipe(Effect.orElseSucceed(() => descriptor(false)))
+      : Effect.succeed(descriptor(false)),
   });
 });
 

@@ -139,6 +139,12 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     (_threadId: ThreadId, _turnId?: TurnId): Effect.Effect<void, ProviderAdapterError> =>
       Effect.void,
   );
+  const startRealtime = vi.fn(
+    (_threadId: ThreadId, _sdp: string): Effect.Effect<void, ProviderAdapterError> => Effect.void,
+  );
+  const stopRealtime = vi.fn(
+    (_threadId: ThreadId): Effect.Effect<void, ProviderAdapterError> => Effect.void,
+  );
 
   const respondToRequest = vi.fn(
     (
@@ -211,6 +217,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     startSession,
     sendTurn,
     interruptTurn,
+    ...(provider === CODEX_DRIVER ? { startRealtime, stopRealtime } : {}),
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -246,6 +253,8 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     startSession,
     sendTurn,
     interruptTurn,
+    startRealtime,
+    stopRealtime,
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -854,6 +863,28 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("reports realtime unsupported for a non-Codex adapter", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-claude-realtime");
+      yield* provider.startSession(threadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const result = yield* provider.startRealtime!({ threadId, sdp: "v=0\r\n" }).pipe(
+        Effect.result,
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.instanceOf(result.failure, ProviderUnsupportedError);
+      }
+      yield* provider.stopSession({ threadId });
+      routing.claude.startSession.mockClear();
+    }),
+  );
+
   it.effect("routes provider operations and rollback conversation", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

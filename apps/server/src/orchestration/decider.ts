@@ -181,9 +181,11 @@ type DecideOrchestrationCommandResult =
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
   readModel,
+  voiceModeEnabled,
 }: {
   readonly commands: ReadonlyArray<OrchestrationCommand>;
   readonly readModel: OrchestrationReadModel;
+  readonly voiceModeEnabled: boolean;
 }): Effect.fn.Return<
   ReadonlyArray<PlannedOrchestrationEvent>,
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
@@ -197,6 +199,7 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
     const decided = yield* decideOrchestrationCommand({
       command: nextCommand,
       readModel: nextReadModel,
+      voiceModeEnabled,
     });
     const nextEvents = Array.isArray(decided) ? decided : [decided];
     for (const nextEvent of nextEvents) {
@@ -215,9 +218,11 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
+  voiceModeEnabled = false,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
+  readonly voiceModeEnabled?: boolean;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
@@ -316,6 +321,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (activeThreads.length > 0) {
         return yield* decideCommandSequence({
           readModel,
+          voiceModeEnabled,
           commands: [
             ...activeThreads.map(
               (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
@@ -380,6 +386,60 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
+      };
+    }
+
+    case "thread.voice.start": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (!voiceModeEnabled) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Voice mode is disabled for this environment.",
+        });
+      }
+      const provider = thread.session?.providerName ?? thread.modelSelection.instanceId;
+      if (provider !== "codex") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' does not use the Codex provider.`,
+        });
+      }
+      const active = readModel.threads.find(
+        (candidate) => candidate.deletedAt === null && candidate.voiceSession != null,
+      );
+      if (active) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `A realtime voice session is already active in thread '${active.id}'.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.voice-session-started",
+        payload: {
+          threadId: command.threadId,
+          sdp: command.sdp,
+          startedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.voice.stop": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.voice-session-stopped",
+        payload: { threadId: command.threadId, stoppedAt: command.createdAt },
       };
     }
 
@@ -1260,6 +1320,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           role: "assistant",
           text: "",
           turnId: command.turnId ?? null,
+          streaming: false,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.message.append": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          role: command.role,
+          text: command.text,
+          turnId: null,
           streaming: false,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,

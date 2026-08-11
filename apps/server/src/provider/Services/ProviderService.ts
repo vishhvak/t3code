@@ -58,6 +58,15 @@ export interface ProviderServiceShape {
     input: ProviderInterruptTurnInput,
   ) => Effect.Effect<void, ProviderServiceError>;
 
+  readonly startRealtime?: (input: {
+    readonly threadId: ThreadId;
+    readonly sdp: string;
+  }) => Effect.Effect<void, ProviderServiceError>;
+
+  readonly stopRealtime?: (input: {
+    readonly threadId: ThreadId;
+  }) => Effect.Effect<void, ProviderServiceError>;
+
   /**
    * Respond to a provider approval request.
    */
